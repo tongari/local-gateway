@@ -58,7 +58,9 @@ func handler(ctx context.Context, event events.APIGatewayCustomAuthorizerRequest
 		region = "us-east-1"
 	}
 
-	// LocalStack 内から LocalStack にアクセスする endpoint
+	// LocalStack環境用のDynamoDBエンドポイント設定
+	// Lambda関数がLocalStack内で実行されるため、通常のAWSエンドポイントではなく
+	// LocalStackのエンドポイント（http://localstack:4566）を使用する
 	host := os.Getenv("LOCALSTACK_HOSTNAME")
 	if host == "" {
 		host = "localhost"
