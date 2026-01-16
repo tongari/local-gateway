@@ -11,4 +11,4 @@ lambda/**/bootstrap
 lambda/**/function.zip
 
 # Go Workspace（go.work.sumは生成ファイルだが、go.workはコミット推奨）
-# go.work.sum は通常コミットしないが、チームで共有する場合はコミットしてもOK
+go.work.sum

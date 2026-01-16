@@ -175,6 +175,65 @@ make exec-lambda
 3. トークンの追加・編集・削除
 4. `active`属性を`false`に設定すると、そのトークンは拒否される
 
+## テスト
+
+Lambda関数のユニットテストを実行できます。テストはLocalStack統合テストとして実装されており、実際のDynamoDBにアクセスして検証します。
+
+### テスト実行
+
+```bash
+# 全テスト実行
+make test
+
+# 詳細出力
+make test TEST_ARGS="-v"
+
+# 特定のパッケージのみ
+make test TEST_TARGET=./authz-go/...
+```
+
+### テスト構成
+
+| パッケージ | テスト内容 |
+|-----------|-----------|
+| `authz-go` | Lambda Authorizer の統合テスト（DynamoDB連携） |
+| `test-function` | テスト用Lambda関数のユニットテスト |
+
+### authz-go テストケース
+
+- `TestGeneratePolicy`: IAMポリシー生成のテスト
+- `TestHandler_EmptyToken`: 空トークンでDenyを返す
+- `TestHandler_TokenNotFound`: DynamoDBにトークンが存在しない場合Deny
+- `TestHandler_TokenInactive`: トークンがinactive（active=false）の場合Deny
+- `TestHandler_ValidToken`: 有効なトークンでAllowを返す
+- `TestHandler_BearerPrefix`: "Bearer "プレフィックスの除去テスト
+
+### テスト用DynamoDBテーブル
+
+テストは専用テーブル `AllowedTokens_Test` を使用します。本番テーブル `AllowedTokens` には影響しません。
+
+- テスト開始時にテーブルを自動作成
+- 各テストでユニークなトークンを使用（テスト間の干渉を防止）
+- テスト終了時にテーブルを自動削除
+
+### デバッグ（ブレークポイント）
+
+VSCode/Cursorでブレークポイントを使ったデバッグが可能です。
+
+#### 方法: テスト関数から直接デバッグ
+
+テスト関数の上に表示される「debug test」リンクをクリックします。
+
+```go
+// ↓ ここに「run test | debug test」が表示される
+func TestHandler_ValidToken(t *testing.T) {
+```
+
+### 注意事項
+
+- テスト実行にはLocalStackが起動している必要があります
+- devcontainer内またはホストから `make test` で実行可能
+
 ## その他コマンド
 
 ### コマンド一覧を表示
@@ -241,10 +300,12 @@ make clean-localstack
     ├── go.sum                  # 依存関係のチェックサム
     ├── authz-go/              # Lambda Authorizer関数
     │   ├── main.go            # Lambda Authorizer実装
+    │   ├── main_test.go       # テストコード（LocalStack統合テスト）
     │   ├── bootstrap          # ビルド成果物（実行ファイル、make build後）
     │   └── function.zip       # ビルド成果物（デプロイ用、make build後）
     └── test-function/         # テスト用Lambda関数
         ├── main.go            # テスト関数実装
+        ├── main_test.go       # テストコード
         ├── bootstrap          # ビルド成果物（実行ファイル、make build後）
         └── function.zip       # ビルド成果物（デプロイ用、make build後）
 ```

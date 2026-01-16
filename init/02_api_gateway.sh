@@ -15,8 +15,8 @@
 # 注意: 既存のリソースが存在する場合は取得し、存在しない場合は作成します。
 set -eu
 
-ENDPOINT="http://localstack:4566"
-REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+ENDPOINT="$AWS_ENDPOINT_URL"
+REGION="$AWS_REGION"
 FUNCTION_NAME="authz-go"
 API_NAME="local-gateway-api"
 STAGE_NAME="test"
@@ -240,7 +240,7 @@ aws apigateway create-deployment \
 
 # API GatewayのURLを表示
 # LocalStack 4.xのエンドポイント形式: http://{api-id}.execute-api.localhost.localstack.cloud:{PORT}/{stage}/{resource-path}
-LOCALSTACK_PORT="${LOCALSTACK_PORT:-4566}"
+LOCALSTACK_PORT="$LOCALSTACK_PORT"
 API_URL="http://${API_ID}.execute-api.localhost.localstack.cloud:${LOCALSTACK_PORT}/${STAGE_NAME}${RESOURCE_PATH}"
 echo "[apigateway] API URL: $API_URL"
 echo "[apigateway] Test with: curl -H 'Authorization: Bearer allow' $API_URL"

@@ -15,4 +15,4 @@ RUN ARCH=$(dpkg --print-architecture | sed 's/arm64/aarch64/; s/amd64/x86_64/') 
   && rm -rf aws awscliv2.zip
 
 # 使いやすいデフォルト
-ENV AWS_DEFAULT_REGION=us-east-1
+ENV AWS_REGION=us-east-1

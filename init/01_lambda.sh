@@ -16,12 +16,12 @@
 # 注意: 既存のIAMリソースが存在する場合は取得し、存在しない場合は作成します。
 set -eu
 
-ENDPOINT="http://localstack:4566"
-REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+ENDPOINT="$AWS_ENDPOINT_URL"
+REGION="$AWS_REGION"
+TABLE_NAME="AllowedTokens"
 FUNCTION_NAME="authz-go"
 ROLE_NAME="lambda-authorizer-role"
 POLICY_NAME="lambda-authorizer-policy"
-TABLE_NAME="${ALLOWED_TOKENS_TABLE:-AllowedTokens}"
 
 echo "[lambda] waiting for LocalStack to be ready..."
 sleep 3
@@ -191,7 +191,7 @@ for lambda_dir in "$LAMBDA_BASE_DIR"/*; do
     --output text 2>/dev/null || echo "")
   
   # 環境変数の設定
-  ENV_VARS="ALLOWED_TOKENS_TABLE=${TABLE_NAME},AWS_REGION=${REGION},LOCALSTACK_HOSTNAME=localstack"
+  ENV_VARS="AWS_REGION=${REGION},AWS_ENDPOINT_URL=${ENDPOINT}"
   
   if [ -n "$FUNCTION_EXISTS" ] && [ "$FUNCTION_EXISTS" = "$lambda_name" ]; then
     echo "[lambda] updating existing function: $lambda_name"
