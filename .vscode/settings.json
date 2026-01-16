@@ -1,0 +1,10 @@
+{
+  "go.buildTags": "integration,wireinject",
+  "go.testTags": "integration",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[go]": {
+    "editor.defaultFormatter": "golang.go"
+  },
+  "cSpell.words": []
+}

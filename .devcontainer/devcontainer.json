@@ -1,16 +1,12 @@
 {
   "name": "gateway-poc-dev",
-  "dockerComposeFile": [
-    "../docker-compose.yml",
-    "docker-compose.devcontainer.yml"
-  ],
-  "service": "dev",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "go-dev",
   "workspaceFolder": "/src",
   "shutdownAction": "stopCompose",
-  "initializeCommand": "/bin/sh -c 'docker pull --platform=linux/arm64 golang:1.21-bookworm 2>&1 || echo \"Image pull failed, continuing with build...\"'",
-  "forwardPorts": [4566, 8001],
+  "forwardPorts": [4666, 8001],
   "portsAttributes": {
-    "4566": {
+    "4666": {
       "label": "LocalStack",
       "onAutoForward": "notify"
     },
@@ -20,17 +16,19 @@
     }
   },
   "remoteEnv": {
+    "IS_DEV_CONTAINER": "true",
     "AWS_ENDPOINT_URL": "http://localstack:4566",
     "AWS_DEFAULT_REGION": "${containerEnv:AWS_DEFAULT_REGION:-us-east-1}",
+    "AWS_ACCESS_KEY_ID": "${containerEnv:AWS_ACCESS_KEY_ID:-test}",
+    "AWS_SECRET_ACCESS_KEY": "${containerEnv:AWS_SECRET_ACCESS_KEY:-test}",
     "DOCKER_DEFAULT_PLATFORM": "linux/arm64"
   },
-  "postCreateCommand": "go version && aws --version",
+  "postCreateCommand": "go version",
   "customizations": {
     "vscode": {
       "extensions": [
         "golang.Go",
         "ms-azuretools.vscode-docker",
-        "amazonwebservices.aws-toolkit-vscode",
         "MS-CEINTL.vscode-language-pack-ja",
         "streetsidesoftware.code-spell-checker",
         "esbenp.prettier-vscode"

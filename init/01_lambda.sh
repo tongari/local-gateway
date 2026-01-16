@@ -164,7 +164,7 @@ fi
 
 # Lambda関数のデプロイ
 # lambdaフォルダ内のすべてのサブディレクトリを検出
-LAMBDA_BASE_DIR="/init/../lambda"
+LAMBDA_BASE_DIR="${LAMBDA_BASE_DIR:-/init/../lambda}"
 echo "[lambda] discovering Lambda functions in $LAMBDA_BASE_DIR"
 
 for lambda_dir in "$LAMBDA_BASE_DIR"/*; do
@@ -243,7 +243,7 @@ echo "[lambda] waiting for all functions to be ready..."
 sleep 2
 
 echo "[lambda] verifying deployed functions"
-aws lambda list-functions \
+AWS_PAGER="" aws lambda list-functions \
   --endpoint-url="$ENDPOINT" \
   --query 'Functions[*].[FunctionName,Runtime,Role]' \
   --output table

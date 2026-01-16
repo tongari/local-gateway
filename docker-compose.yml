@@ -64,6 +64,30 @@ services:
     networks:
       - local-gateway
 
+  go-dev:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDPLATFORM: linux/arm64
+        TARGETPLATFORM: linux/arm64
+    container_name: gateway-go-dev
+    depends_on:
+      localstack:
+        condition: service_started
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - .:/src:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /src
+    tty: true
+    networks:
+      - local-gateway
+
 networks:
   local-gateway:
     driver: bridge

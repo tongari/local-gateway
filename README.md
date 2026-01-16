@@ -352,5 +352,4 @@ Unable to locate credentials. You can configure credentials by running "aws conf
 - Terraform化（は必要か？）
 - CI/CD構築
 - テストコードを実装
-- devcontainerを動かす
 - airでのホットリロード？（でもlambdaをzip化して、localstackにdeployするのをホットリロードに含めるのか？）
