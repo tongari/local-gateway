@@ -3,10 +3,9 @@ services:
     container_name: gateway-localstack
     image: localstack/localstack:latest
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${LOCALSTACK_PORT}"
     environment:
       - SERVICES=${LOCALSTACK_SERVICES}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - DEBUG=${LOCALSTACK_DEBUG}
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
@@ -16,7 +15,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:4566/_localstack/health').read()",
+          "import urllib.request; urllib.request.urlopen('${AWS_ENDPOINT_URL}/_localstack/health').read()",
         ]
       interval: 5s
       timeout: 5s
@@ -32,11 +31,11 @@ services:
       localstack:
         condition: service_healthy
     ports:
-      - "${DYNAMODB_ADMIN_PORT:-8001}:8001"
+      - "${DYNAMODB_ADMIN_PORT}"
     environment:
       # LocalStack の DynamoDB エンドポイント
-      - DYNAMO_ENDPOINT=http://localstack:4566
-      - AWS_REGION=${AWS_DEFAULT_REGION}
+      - DYNAMO_ENDPOINT=${AWS_ENDPOINT_URL}
+      - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     networks:
@@ -51,8 +50,9 @@ services:
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-      - LOCALSTACK_PORT=${LOCALSTACK_PORT:-4566}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
+      - LOCALSTACK_PORT=${LOCALSTACK_PORT}
     volumes:
       - ./init:/init:ro
       - ./lambda:/init/../lambda:ro
@@ -77,9 +77,10 @@ services:
       localstack:
         condition: service_started
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
     volumes:
       - .:/src:cached
       - /var/run/docker.sock:/var/run/docker.sock

@@ -12,7 +12,7 @@ LAMBDAS := $(shell find $(LAMBDA_DIR) -maxdepth 1 -mindepth 1 -type d)
 # .envファイルからLOCALSTACK_PORTを読み込む（デフォルト: 4566）
 LOCALSTACK_PORT := $(shell grep -E '^LOCALSTACK_PORT=' .env 2>/dev/null | sed 's/^LOCALSTACK_PORT=//' | tr -d '\n' || echo "4566")
 
-.PHONY: all build clean deploy exec-curl exec-lambda list-lambdas get-api-id check-iam-role check-iam-policy clean-localstack help
+.PHONY: all build clean deploy exec-curl exec-lambda list-lambdas get-api-id check-iam-role check-iam-policy clean-localstack test help
 
 # デフォルトターゲット（helpを表示）
 .DEFAULT_GOAL := help
@@ -35,6 +35,10 @@ help:
 	@echo "                         (例: make exec-curl TOKEN=allow METHOD=GET API_PATH=/test/test)"
 	@echo "  make exec-lambda      - Lambda関数を直接呼び出して実行"
 	@echo "                         (例: make exec-lambda LAMBDA_NAME=test-function)"
+	@echo ""
+	@echo "  make test             - Lambda関数のユニットテスト実行"
+	@echo "                         (例: make test)"
+	@echo "                         (例: make test TEST_TARGET=./authz-go/...)"
 	@echo ""
 	@echo "  make clean-localstack - LocalStackリソースのクリーンアップ"
 	@echo ""
@@ -434,6 +438,40 @@ exec-lambda:
 	  echo "Response:" && \
 	  docker exec gateway-awscli cat /tmp/test-response.json | python3 -m json.tool 2>/dev/null || docker exec gateway-awscli cat /tmp/test-response.json && \
 	  echo ""; \
+	fi
+
+# Lambda関数のユニットテスト実行
+# LocalStackが起動している必要がある（DynamoDBを使用するテストがあるため）
+# 使用例: make test                           # 全テスト実行（testutil除外）
+# 使用例: make test TEST_TARGET=./authz-go/... # 特定のパッケージのみ
+# 使用例: make test TEST_ARGS="-v"            # 詳細出力
+test:
+	@echo "==> running Lambda function tests"
+	@TEST_ARGS=$${TEST_ARGS:-}; \
+	if [ "$$IS_DEV_CONTAINER" = "true" ] && which go >/dev/null 2>&1; then \
+	  echo "Running tests (devcontainer mode)..."; \
+	  cd $(LAMBDA_DIR_ABS); \
+	  if [ -n "$$TEST_TARGET" ]; then \
+	    echo "Test target: $$TEST_TARGET"; \
+	    go test $$TEST_TARGET $$TEST_ARGS; \
+	  else \
+	    TEST_PKGS=$$(go list ./... | grep -v /testutil); \
+	    echo "Test target: $$TEST_PKGS"; \
+	    go test $$TEST_PKGS $$TEST_ARGS; \
+	  fi; \
+	else \
+	  echo "Running tests (host mode via docker)..."; \
+	  echo "Checking if containers are running..."; \
+	  if ! docker ps --format "{{.Names}}" 2>/dev/null | grep -q "^gateway-go-dev$$"; then \
+	    echo "ERROR: go-dev container (gateway-go-dev) is not running. Run 'docker compose up -d' first."; \
+	    exit 1; \
+	  fi; \
+	  if [ -n "$$TEST_TARGET" ]; then \
+	    echo "Test target: $$TEST_TARGET"; \
+	    docker exec gateway-go-dev sh -c "cd $(LAMBDA_DIR_CONTAINER) && go test $$TEST_TARGET $$TEST_ARGS"; \
+	  else \
+	    docker exec gateway-go-dev sh -c "cd $(LAMBDA_DIR_CONTAINER) && go test \$$(go list ./... | grep -v /testutil) $$TEST_ARGS"; \
+	  fi; \
 	fi
 
 # LocalStackリソースのクリーンアップ

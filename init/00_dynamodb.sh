@@ -16,7 +16,7 @@
 #       初期データ（token: "allow"）は毎回投入されます（既存の場合は上書き）。
 set -eu
 
-ENDPOINT="http://localstack:4566"
+ENDPOINT="$AWS_ENDPOINT_URL"
 TABLE="AllowedTokens"
 
 echo "[init] waiting a bit..."
