@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read          # リポジトリのコードを読み取る権限（チェックアウト用）
+  id-token: write         # OIDC トークンを発行する権限（AWS認証用）
+  pull-requests: write    # Pull Request にコメントを書き込む権限（Terraform plan結果の表示用）
+
+env:
+  AWS_REGION: 'ap-northeast-1'
+
+jobs:
+  test-build:
+    name: Test and Build
+    uses: ./.github/workflows/_reusable-test-build.yml
+
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: test-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.test-build.outputs.artifact-name }}
+          path: lambda
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Terraform Init
+        working-directory: terraform/production
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/production
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('terraform/production/plan-output.txt', 'utf8');
+
+            // Plan結果のサマリーを抽出
+            const planSummary = planOutput.match(/Plan: .+/);
+            const exitCode = '${{ steps.plan.outcome }}';
+
+            const output = `#### Terraform Plan 📖 \`${exitCode}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${planOutput.slice(-60000)}
+            \`\`\`
+
+            </details>
+
+            ${planSummary ? `**${planSummary[0]}**` : ''}
+
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })

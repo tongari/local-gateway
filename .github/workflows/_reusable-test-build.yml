@@ -1,0 +1,109 @@
+name: Reusable Test and Build
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact containing Lambda packages"
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+env:
+  GO_VERSION: '1.25'
+  AWS_REGION: 'ap-northeast-1'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: dynamodb
+          DEBUG: 0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        working-directory: lambda
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: ap-northeast-1
+        run: |
+          go work sync
+          go test -v ./...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      artifact-name: ${{ steps.set-artifact-name.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Lambda functions
+        working-directory: lambda
+        run: |
+          go work sync
+          for dir in authz-go test-function; do
+            cd $dir
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap main.go
+            zip function.zip bootstrap
+            cd ..
+          done
+
+      - name: Verify Lambda packages
+        working-directory: lambda
+        run: |
+          for dir in authz-go test-function; do
+            echo "=== Verifying $dir/function.zip ==="
+
+            # ZIPファイルの整合性チェック
+            unzip -t "$dir/function.zip"
+
+            # 内容一覧表示 & bootstrap存在確認
+            unzip -l "$dir/function.zip" | grep bootstrap || (echo "ERROR: bootstrap not found in $dir/function.zip" && exit 1)
+
+            # ファイルサイズ確認（空でないことを確認）
+            size=$(stat -c%s "$dir/function.zip" 2>/dev/null || stat -f%z "$dir/function.zip")
+            if [ "$size" -lt 1000 ]; then
+              echo "ERROR: $dir/function.zip is too small ($size bytes)"
+              exit 1
+            fi
+
+            echo "✓ $dir/function.zip is valid (size: $size bytes)"
+          done
+
+      - name: Set artifact name
+        id: set-artifact-name
+        run: echo "name=lambda-packages-${{ github.run_id }}" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-artifact-name.outputs.name }}
+          path: |
+            lambda/authz-go/function.zip
+            lambda/test-function/function.zip
