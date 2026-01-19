@@ -145,7 +145,7 @@ AWSコンソールまたはAWS CLIで以下を作成します。
 
 | リソース | 用途 | 推奨名 |
 |---------|------|--------|
-| S3バケット | Terraform state保存 | `local-gateway-tfstate` |
+| S3バケット | Terraform state保存 | `local-gateway-tfstate-<ACCOUNT_ID>` (グローバルで一意) |
 | DynamoDBテーブル | State lock | `local-gateway-tfstate-lock` |
 | IAM OIDC Provider | GitHub Actions認証 | - |
 | IAM Role | GitHub Actionsが使用 | `github-actions-local-gateway` |
@@ -158,21 +158,28 @@ CI/CDでTerraformを実行するには、stateファイルをリモートで管�
 
 #### S3バケット (tfstate保存用)
 
+> **重要**: S3バケット名はAWS全体（全リージョン・全アカウント）で一意である必要があります。
+>
+> **推奨命名規則**: `<組織名>-<プロジェクト名>-tfstate-<AWSアカウントID>`
+>
+> 例: `local-gateway-tfstate-123456789012`
+
 ```bash
 # バケット作成
+# 注意: バケット名はAWSアカウントIDを含めてグローバルで一意にすること
 aws s3api create-bucket \
-  --bucket local-gateway-tfstate \
+  --bucket local-gateway-tfstate-123456789012 \
   --region ap-northeast-1 \
   --create-bucket-configuration LocationConstraint=ap-northeast-1
 
 # バージョニング有効化
 aws s3api put-bucket-versioning \
-  --bucket local-gateway-tfstate \
+  --bucket local-gateway-tfstate-123456789012 \
   --versioning-configuration Status=Enabled
 
 # 暗号化設定
 aws s3api put-bucket-encryption \
-  --bucket local-gateway-tfstate \
+  --bucket local-gateway-tfstate-123456789012 \
   --server-side-encryption-configuration '{
     "Rules": [
       {
@@ -243,11 +250,39 @@ sequenceDiagram
 
 #### OIDC Provider作成
 
+**方法1: AWSコンソール（最も簡単・推奨）**
+
+1. [IAM コンソール](https://console.aws.amazon.com/iam/) > **Identity providers** > **Add provider**
+2. **Provider type**: OpenID Connect を選択
+3. **Provider URL**: `https://token.actions.githubusercontent.com` を入力
+4. **Get thumbprint** ボタンをクリック（自動的にthumbprintを取得）
+5. **Audience**: `sts.amazonaws.com` を入力
+6. **Add provider** をクリック
+
+> **参考**: AWSコンソールは「Get thumbprint」ボタンで自動的にthumbprintを取得・検証します。
+
+**方法2: AWS CLI**
+
 ```bash
+# IAMが自動的にthumbprintを取得
 aws iam create-open-id-connect-provider \
   --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+  --client-id-list sts.amazonaws.com
+```
+
+`--thumbprint-list`パラメータは省略可能です。省略した場合、IAMが自動的にOIDC IdPサーバー証明書の中間CA thumbprintを取得します。
+
+> **参考**: 2023年6月以降、GitHub ActionsとAWSのOIDC連携においてthumbprintの手動指定は不要になりました。
+> - [Use IAM roles to connect GitHub Actions to AWS](https://aws.amazon.com/blogs/security/use-iam-roles-to-connect-github-actions-to-actions-in-aws/)
+> - [GitHub Changelog - Update on OIDC integration with AWS](https://github.blog/changelog/2023-06-27-github-actions-update-on-oidc-integration-with-aws/)
+> - [AWS CLI - create-open-id-connect-provider](https://docs.aws.amazon.com/cli/latest/reference/iam/create-open-id-connect-provider.html)
+
+**確認方法**
+
+```bash
+# 作成されたOIDC Providerを確認
+aws iam get-open-id-connect-provider \
+  --open-id-connect-provider-arn arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com
 ```
 
 #### IAMロール作成
@@ -339,9 +374,16 @@ aws iam create-open-id-connect-provider \
       "Sid": "APIGatewayManagement",
       "Effect": "Allow",
       "Action": [
-        "apigateway:*"
+        "apigateway:GET",
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:apigateway:ap-northeast-1::/restapis",
+        "arn:aws:apigateway:ap-northeast-1::/restapis/*"
+      ]
     },
     {
       "Sid": "IAMRoleManagement",
@@ -399,12 +441,14 @@ aws iam put-role-policy \
 
 [`terraform/production/backend.tf`](../terraform/production/backend.tf) のコメントを解除し、作成したS3バケット名を設定します。
 
+> **注意**: `bucket`には実際に作成したバケット名（AWSアカウントIDを含むもの）を指定してください。
+
 ```hcl
 terraform {
   required_version = ">= 1.5.0"
 
   backend "s3" {
-    bucket         = "local-gateway-tfstate"
+    bucket         = "local-gateway-tfstate-123456789012"  # 実際のバケット名に置き換える
     key            = "production/terraform.tfstate"
     region         = "ap-northeast-1"
     encrypt        = true
@@ -450,6 +494,89 @@ provider "aws" {
 | **CI** | Pull Requestの作成/更新 | テスト実行、terraform plan（変更内容をPRにコメント） |
 | **CD** | mainブランチへのpush | Lambdaビルド、terraform apply（自動デプロイ） |
 
+#### CI/CDでの統合テスト
+
+**LocalStackをサービスコンテナとして起動**
+
+GitHub Actionsでは、LocalStackをサービスコンテナとして起動することで、ローカル開発環境と同じ統合テストを実行できます。
+
+**テスト環境の構成:**
+
+```yaml
+services:
+  localstack:
+    image: localstack/localstack:latest
+    env:
+      SERVICES: dynamodb  # DynamoDBのみ起動（高速化）
+      DEBUG: 0
+    ports:
+      - 4566:4566
+```
+
+**重要なポイント:**
+
+| 項目 | 説明 |
+|------|------|
+| **Terraform不要** | テストコード自体が`testutil.EnsureTable`でDynamoDBテーブルを作成・削除するため、Terraformによるインフラ構築は不要 |
+| **ローカルと同等** | LocalStackのDynamoDBエミュレータを使用し、ローカル開発環境（docker-compose）と同じテストを実行 |
+| **統合テスト実行** | モックではなく、実際のDynamoDB APIを使った統合テストが可能 |
+| **高速起動** | `SERVICES: dynamodb`で必要最小限のサービスのみ起動 |
+
+**環境変数の設定:**
+
+```yaml
+env:
+  AWS_ENDPOINT_URL: http://localhost:4566  # LocalStackエンドポイント
+  AWS_ACCESS_KEY_ID: test                  # ダミー認証情報
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_REGION: ap-northeast-1
+```
+
+これにより、`testutil.NewDynamoDBClient`がLocalStackに接続し、テストが実行されます。
+
+#### Terraform Plan とは
+
+**Terraform Plan = インフラ変更の事前プレビュー**
+
+Terraformには2つの重要なコマンドがあります：
+
+| コマンド | 役割 | 例え |
+|---------|------|------|
+| `terraform plan` | 変更内容の**プレビュー**（実行前確認） | 映画の予告編 |
+| `terraform apply` | 実際の**変更実行**（リソース作成・更新・削除） | 本編の上映 |
+
+**具体的な出力例:**
+
+```terraform
+Terraform will perform the following actions:
+
+  # module.lambda_authorizer.aws_lambda_function.main will be updated in-place
+  ~ resource "aws_lambda_function" "main" {
+        id            = "authz-go"
+      ~ memory_size   = 128 -> 256  # メモリを変更
+        # (10 unchanged attributes hidden)
+    }
+
+Plan: 0 to add, 1 to change, 0 to destroy.
+```
+
+この例では：
+- Lambda関数`authz-go`のメモリが128MB→256MBに変更される
+- リソースの追加・削除はなし
+- 変更は1件のみ
+
+**CI/CDでの活用:**
+
+| ステージ | 使用コマンド | 目的 |
+|---------|------------|------|
+| **PR作成時** | `terraform plan` | 変更内容をレビュー、意図しない変更がないか確認 |
+| **mainマージ後** | `terraform apply` | 変更を本番環境に適用 |
+
+**メリット:**
+- 🔍 **事前確認**: インフラへの影響を適用前に把握
+- 🛡️ **事故防止**: 意図しないリソース削除や設定ミスを発見
+- 👥 **レビュー**: PRコメントで変更内容をチーム全体で確認可能
+
 ### 3.2 CI ワークフロー (.github/workflows/ci.yml)
 
 ```yaml
@@ -472,6 +599,19 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: dynamodb
+          DEBUG: 0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -483,6 +623,11 @@ jobs:
 
       - name: Run tests
         working-directory: lambda
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: ap-northeast-1
         run: |
           go work sync
           go test -v ./...
@@ -507,15 +652,39 @@ jobs:
           for dir in authz-go test-function; do
             cd $dir
             GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap main.go
-            zip ${dir}.zip bootstrap
+            zip function.zip bootstrap
             cd ..
+          done
+
+      - name: Verify Lambda packages
+        working-directory: lambda
+        run: |
+          for dir in authz-go test-function; do
+            echo "=== Verifying $dir/function.zip ==="
+
+            # ZIPファイルの整合性チェック
+            unzip -t "$dir/function.zip"
+
+            # 内容一覧表示 & bootstrap存在確認
+            unzip -l "$dir/function.zip" | grep bootstrap || (echo "ERROR: bootstrap not found in $dir/function.zip" && exit 1)
+
+            # ファイルサイズ確認（空でないことを確認）
+            size=$(stat -c%s "$dir/function.zip" 2>/dev/null || stat -f%z "$dir/function.zip")
+            if [ "$size" -lt 1000 ]; then
+              echo "ERROR: $dir/function.zip is too small ($size bytes)"
+              exit 1
+            fi
+
+            echo "✓ $dir/function.zip is valid (size: $size bytes)"
           done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lambda-packages
-          path: lambda/*/*.zip
+          path: |
+            lambda/authz-go/function.zip
+            lambda/test-function/function.zip
 
   plan:
     name: Terraform Plan
@@ -547,19 +716,35 @@ jobs:
         run: terraform init
 
       - name: Terraform Plan
+        id: plan
         working-directory: terraform/production
-        run: terraform plan -no-color -out=tfplan
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        continue-on-error: true
 
       - name: Comment PR
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const output = `#### Terraform Plan 📖
+            const planOutput = fs.readFileSync('terraform/production/plan-output.txt', 'utf8');
 
+            // Plan結果のサマリーを抽出
+            const planSummary = planOutput.match(/Plan: .+/);
+            const exitCode = '${{ steps.plan.outcome }}';
+
+            const output = `#### Terraform Plan 📖 \`${exitCode}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${planOutput.slice(-60000)}
             \`\`\`
-            Plan output here
-            \`\`\`
+
+            </details>
+
+            ${planSummary ? `**${planSummary[0]}**` : ''}
 
             *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
 
@@ -592,6 +777,19 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: dynamodb
+          DEBUG: 0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -603,6 +801,11 @@ jobs:
 
       - name: Run tests
         working-directory: lambda
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: ap-northeast-1
         run: |
           go work sync
           go test -v ./...
@@ -627,15 +830,39 @@ jobs:
           for dir in authz-go test-function; do
             cd $dir
             GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap main.go
-            zip ${dir}.zip bootstrap
+            zip function.zip bootstrap
             cd ..
+          done
+
+      - name: Verify Lambda packages
+        working-directory: lambda
+        run: |
+          for dir in authz-go test-function; do
+            echo "=== Verifying $dir/function.zip ==="
+
+            # ZIPファイルの整合性チェック
+            unzip -t "$dir/function.zip"
+
+            # 内容一覧表示 & bootstrap存在確認
+            unzip -l "$dir/function.zip" | grep bootstrap || (echo "ERROR: bootstrap not found in $dir/function.zip" && exit 1)
+
+            # ファイルサイズ確認（空でないことを確認）
+            size=$(stat -c%s "$dir/function.zip" 2>/dev/null || stat -f%z "$dir/function.zip")
+            if [ "$size" -lt 1000 ]; then
+              echo "ERROR: $dir/function.zip is too small ($size bytes)"
+              exit 1
+            fi
+
+            echo "✓ $dir/function.zip is valid (size: $size bytes)"
           done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lambda-packages
-          path: lambda/*/*.zip
+          path: |
+            lambda/authz-go/function.zip
+            lambda/test-function/function.zip
 
   deploy:
     name: Deploy
@@ -680,11 +907,29 @@ jobs:
 
 ### 3.4 GitHub Secrets設定
 
-リポジトリの Settings > Secrets and variables > Actions で以下を設定:
+**重要**: GitHub ActionsワークフローでOIDC認証を使用するには、作成したIAMロールのARNをGitHub Secretsに登録する必要があります。
+
+#### 設定手順
+
+1. GitHubリポジトリで **Settings > Secrets and variables > Actions** に移動
+2. **New repository secret** をクリック
+3. 以下のSecretを追加:
 
 | Secret名 | 値 | 説明 |
 |----------|-----|------|
-| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/github-actions-local-gateway` | OIDC認証用ロールARN |
+| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/github-actions-local-gateway` | GitHub ActionsがAssumeするIAMロールのARN |
+
+#### 使用例（ワークフロー内）
+
+```yaml
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: ${{ secrets.AWS_ROLE_ARN }}  # ← ここでSecretを参照
+    aws-region: ap-northeast-1
+```
+
+> **注意**: OIDC ProviderのARN (`arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`) はワークフローに記載する必要はありません。IAMロールのARNのみを指定します。
 
 ---
 
