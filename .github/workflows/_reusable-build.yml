@@ -1,0 +1,78 @@
+name: Reusable Build
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact containing Lambda packages"
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.set-artifact-name.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Lambda functions
+        working-directory: lambda
+        run: |
+          go work sync
+          # main.goを持つディレクトリを動的に検出してビルド
+          for dir in */; do
+            dir=${dir%/}  # 末尾のスラッシュを削除
+            if [ -f "$dir/main.go" ]; then
+              echo "Building $dir..."
+              cd $dir
+              GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap main.go
+              zip function.zip bootstrap
+              cd ..
+            fi
+          done
+
+      - name: Verify Lambda packages
+        working-directory: lambda
+        run: |
+          # function.zipを持つディレクトリを動的に検出して検証
+          for dir in */; do
+            dir=${dir%/}  # 末尾のスラッシュを削除
+            if [ -f "$dir/function.zip" ]; then
+              echo "=== Verifying $dir/function.zip ==="
+
+              # ZIPファイルの整合性チェック
+              unzip -t "$dir/function.zip"
+
+              # 内容一覧表示 & bootstrap存在確認
+              unzip -l "$dir/function.zip" | grep bootstrap || (echo "ERROR: bootstrap not found in $dir/function.zip" && exit 1)
+
+              # ファイルサイズ確認（空でないことを確認）
+              size=$(stat -c%s "$dir/function.zip" 2>/dev/null || stat -f%z "$dir/function.zip")
+              if [ "$size" -lt 1000 ]; then
+                echo "ERROR: $dir/function.zip is too small ($size bytes)"
+                exit 1
+              fi
+
+              echo "✓ $dir/function.zip is valid (size: $size bytes)"
+            fi
+          done
+
+      - name: Set artifact name
+        id: set-artifact-name
+        run: echo "name=lambda-packages-${{ github.run_id }}" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-artifact-name.outputs.name }}
+          path: lambda/*/function.zip

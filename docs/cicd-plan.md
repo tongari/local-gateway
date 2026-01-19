@@ -993,9 +993,62 @@ jobs:
 
 ---
 
+## 実装状況
+
+### 完了した実装 ✅
+
+| 項目 | 実装内容 | 備考 |
+|------|---------|------|
+| **CI ワークフロー** | `.github/workflows/ci.yml` | test → build → terraform plan |
+| **Deploy ワークフロー** | `.github/workflows/deploy.yml` | test → build → terraform apply |
+| **Reusable Workflow** | `_reusable-test.yml`, `_reusable-build.yml` | testとbuildを分離して再利用可能に |
+| **動的ビルド** | Lambda関数の自動検出 | `lambda/*/main.go`を動的検出 |
+| **Terraform Backend** | `terraform/production/backend.tf` | S3バックエンド設定を有効化 |
+
+### 実装の改善点
+
+**計画からの主な変更:**
+
+1. **Reusable Workflowの分離**
+   - 当初: `_reusable-test-build.yml` (test + build統合)
+   - 実装: `_reusable-test.yml` + `_reusable-build.yml` (分離)
+   - **理由**: 柔軟性の向上、単一責任の原則
+
+2. **動的Lambda関数検出**
+   - 当初: `for dir in authz-go test-function; do` (固定)
+   - 実装: `for dir in */; do if [ -f "$dir/main.go" ]; then` (動的)
+   - **理由**: Lambda関数追加時にワークフロー修正不要
+
+3. **Terraformは明示的定義を維持**
+   - **判断**: GitHub Actionsは動的、Terraformは明示的
+   - **理由**: インフラコードは可読性を優先
+
+### ユーザーが実施すべき残りタスク
+
+#### Phase 1: AWS環境準備
+- [ ] S3バケット作成 (tfstate用)
+- [ ] DynamoDBテーブル作成 (state lock用)
+- [ ] OIDC Provider作成
+- [ ] IAMロール作成
+
+#### Phase 3: GitHub設定
+- [ ] `terraform/production/backend.tf`の`<ACCOUNT_ID>`を実際のAWSアカウントIDに置き換え
+- [ ] GitHub Secrets設定: `AWS_ROLE_ARN`
+- [ ] GitHub Environment作成: `production`
+- [ ] ブランチ保護ルール設定（推奨）
+
+#### Phase 4: 動作確認
+- [ ] PRを作成してCI実行確認
+- [ ] terraform plan結果確認
+- [ ] mainにマージしてデプロイ確認
+- [ ] API Gateway URL疎通確認
+
+---
+
 ## 更新履歴
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-20 | CI/CD実装完了、動的ビルド対応、Reusable Workflow分離 |
 | 2026-01-19 | 概要版と詳細版を統合 |
 | 2026-01-18 | 初版作成 |

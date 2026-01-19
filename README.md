@@ -409,10 +409,111 @@ Unable to locate credentials. You can configure credentials by running "aws conf
 コマンドを実行する前に、必ず`--endpoint-url=http://localstack:4566`が含まれているか確認してください。
 
 
+## CI/CD
+
+このプロジェクトはGitHub Actionsを使用したCI/CDパイプラインを実装しています。
+
+### ワークフロー構成
+
+```
+.github/workflows/
+├── _reusable-test.yml   # 再利用可能: テスト実行
+├── _reusable-build.yml  # 再利用可能: Lambda関数ビルド
+├── ci.yml               # Pull Request時: test → build → terraform plan
+└── deploy.yml           # mainブランチpush時: test → build → terraform apply
+```
+
+### CI/CDフロー
+
+#### Pull Request作成時（CI）
+```mermaid
+graph LR
+    A[Test] --> B[Build]
+    B --> C[Terraform Plan]
+    C --> D[Plan結果をPRにコメント]
+```
+
+1. **Test**: LocalStackでDynamoDB統合テストを実行
+2. **Build**: Lambda関数を動的検出してビルド・検証
+3. **Terraform Plan**: インフラ変更内容をプレビュー
+4. **PR Comment**: Plan結果をPull Requestにコメント
+
+#### mainブランチへのマージ時（Deploy）
+```mermaid
+graph LR
+    A[Test] --> B[Build]
+    B --> C[Terraform Apply]
+    C --> D[AWS本番環境へデプロイ]
+```
+
+1. **Test**: LocalStackでDynamoDB統合テストを実行
+2. **Build**: Lambda関数を動的検出してビルド・検証
+3. **Terraform Apply**: AWS本番環境へ自動デプロイ
+4. **Output**: API Gateway URLを表示
+
+### 特徴
+
+- **動的ビルド**: `lambda/*/main.go`を自動検出してビルド（新規Lambda追加時にワークフロー修正不要）
+- **Reusable Workflow**: testとbuildを再利用可能なワークフローとして分離
+- **OIDC認証**: AWSアクセスキー不要のセキュアな認証
+- **Terraform Remote State**: S3バックエンドでstate管理
+
+### セットアップ
+
+CI/CDを使用するには、以下の準備が必要です。詳細は [`docs/cicd-plan.md`](./docs/cicd-plan.md) を参照してください。
+
+#### AWS環境準備
+1. S3バケット作成（tfstate保存用）
+2. DynamoDBテーブル作成（state lock用）
+3. OIDC Provider作成
+4. IAMロール作成
+
+#### GitHub設定
+1. `terraform/production/backend.tf`の`<ACCOUNT_ID>`を実際のAWSアカウントIDに置き換え
+2. GitHub Secrets設定: `AWS_ROLE_ARN`
+3. GitHub Environment作成: `production`
+
+#### ブランチ保護ルール（推奨）
+mainブランチへの直接pushを防ぐため、ブランチ保護ルールの設定を推奨します。
+詳細は [`docs/branch-protection.md`](./docs/branch-protection.md) を参照してください。
+
+### Lambda関数の追加
+
+新しいLambda関数を追加する手順:
+
+1. **Lambda関数の作成**
+   ```bash
+   mkdir lambda/new-function
+   cd lambda/new-function
+   # main.goを作成
+   ```
+
+2. **GitHub Actionsでの自動ビルド**
+   - `main.go`が存在するディレクトリは自動的にビルド対象となる
+   - ワークフローファイルの修正は不要
+
+3. **Terraformへの追加**
+   ```hcl
+   # terraform/production/main.tf
+   module "lambda_new_function" {
+     source = "../modules/lambda"
+
+     function_name = "new-function"
+     zip_path      = "${path.module}/../../lambda/new-function/function.zip"
+     iam_role_name = "lambda-new-function-role"
+
+     tags = {
+       Environment = "production"
+       ManagedBy   = "terraform"
+     }
+   }
+   ```
+
+4. **デプロイ**
+   - Pull Requestを作成してCI実行確認
+   - mainにマージして本番環境へデプロイ
+
 ## 次のステップ
 - JWT署名検証の追加
 - 正式なDynamoDBのテーブル構築
-- Terraform化（は必要か？）
-- CI/CD構築
-- テストコードを実装
 - airでのホットリロード？（でもlambdaをzip化して、localstackにdeployするのをホットリロードに含めるのか？）
