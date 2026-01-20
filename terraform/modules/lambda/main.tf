@@ -30,8 +30,7 @@ resource "aws_iam_policy" "lambda_policy" {
     Statement = [{
       Effect = "Allow"
       Action = [
-        "dynamodb:GetItem",
-        "dynamodb:Query"
+        "dynamodb:GetItem"
       ]
       Resource = var.dynamodb_table_arn
     }]

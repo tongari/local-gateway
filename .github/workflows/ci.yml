@@ -56,7 +56,6 @@ jobs:
         working-directory: terraform/production
         run: |
           terraform plan -no-color -out=tfplan 2>&1 | tee plan-output.txt
-        continue-on-error: true
 
       - name: Comment PR
         if: github.event_name == 'pull_request'

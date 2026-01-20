@@ -11,5 +11,14 @@ resource "aws_dynamodb_table" "allowed_tokens" {
     type = "S"
   }
 
+  # 保存時の暗号化（Encryption at Rest）
+  # LocalStackでは未サポートのため、enable_encryption=trueで本番環境のみ有効化
+  dynamic "server_side_encryption" {
+    for_each = var.enable_encryption ? [1] : []
+    content {
+      enabled = true
+    }
+  }
+
   tags = var.tags
 }

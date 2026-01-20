@@ -15,7 +15,7 @@ AWS_ACCESS_KEY_ID := $(shell grep -E '^AWS_ACCESS_KEY_ID=' .env 2>/dev/null | se
 AWS_SECRET_ACCESS_KEY := $(shell grep -E '^AWS_SECRET_ACCESS_KEY=' .env 2>/dev/null | sed 's/^AWS_SECRET_ACCESS_KEY=//' | tr -d '\n')
 AWS_REGION := $(shell grep -E '^AWS_REGION=' .env 2>/dev/null | sed 's/^AWS_REGION=//' | tr -d '\n')
 
-.PHONY: all build clean deploy exec-curl exec-lambda list-lambdas get-api-id check-apigateway check-iam-role check-iam-policy clean-localstack test help
+.PHONY: all build clean clean-tfstate deploy exec-curl exec-lambda list-lambdas get-api-id check-apigateway check-iam-role check-iam-policy clean-localstack test help
 
 # デフォルトターゲット（helpを表示）
 .DEFAULT_GOAL := help
@@ -28,6 +28,7 @@ help:
 	@echo "  make build            - Lambda関数をビルド（ZIP化まで）"
 	@echo "  make deploy           - Lambda関数とAPI Gatewayをデプロイ（buildを実行前提）"
 	@echo "  make clean            - Lambda関数のビルド成果物を削除"
+	@echo "  make clean-tfstate    - Terraform state ファイルを削除（LocalStack環境用）"
 	@echo ""
 	@echo "  make list-lambdas     - LocalStackに登録されているLambda関数の一覧を表示"
 	@echo "  make get-api-id       - API GatewayのIDを取得して表示"
@@ -45,6 +46,10 @@ help:
 	@echo "                         (例: make test TEST_TARGET=./authz-go/...)"
 	@echo ""
 	@echo "  make clean-localstack - LocalStackリソースのクリーンアップ"
+	@echo ""
+	@echo "Docker Compose:"
+	@echo "  docker compose up -d  - 環境起動（Terraform stateは自動削除されます）"
+	@echo "  docker compose down   - 環境停止"
 	@echo ""
 	@echo "  make help             - このヘルプを表示"
 
@@ -89,6 +94,12 @@ build:
 # Lambda関数のビルド成果物を削除
 clean:
 	@find $(LAMBDA_DIR) -name bootstrap -o -name function.zip | xargs rm -f
+
+# Terraform state ファイルを削除（LocalStack環境用）
+clean-tfstate:
+	@echo "==> cleaning Terraform state files"
+	@rm -f terraform/local/terraform.tfstate*
+	@echo "Terraform state files removed"
 
 # LocalStackに登録されているLambda関数の一覧を表示
 list-lambdas:
