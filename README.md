@@ -516,4 +516,3 @@ mainブランチへの直接pushを防ぐため、ブランチ保護ルールの
 ## 次のステップ
 - JWT署名検証の追加
 - 正式なDynamoDBのテーブル構築
-- airでのホットリロード？（でもlambdaをzip化して、localstackにdeployするのをホットリロードに含めるのか？）
