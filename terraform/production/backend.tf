@@ -1,20 +1,12 @@
 # リモートステート設定（本番環境用）
 #
-# 使用方法：
-# 1. backend-config.hcl を作成（このファイルはGit管理外）
-# 2. terraform init -backend-config=backend-config.hcl で初期化
+# GitHub Actions経由でのデプロイ時には、ワークフロー内で
+# -backend-config パラメータを使用してS3バケット名などを指定します。
 #
-# backend-config.hcl の内容例：
-# bucket         = "local-gateway-tfstate-123456789012"
-# key            = "production/terraform.tfstate"
-# region         = "ap-northeast-1"
-# dynamodb_table = "local-gateway-tfstate-lock"
-# encrypt        = true
-#
-# 準備手順の詳細は docs/cicd-plan.md を参照してください。
+# 詳細は docs/aws-manual-setup.md を参照してください。
 
 terraform {
   backend "s3" {
-    # backend-config.hcl で設定を指定
+    # GitHub Actionsで -backend-config パラメータにて設定
   }
 }

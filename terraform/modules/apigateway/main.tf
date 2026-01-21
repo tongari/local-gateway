@@ -63,7 +63,7 @@ resource "aws_api_gateway_method_settings" "throttling" {
   settings {
     throttling_burst_limit = var.throttle_burst_limit
     throttling_rate_limit  = var.throttle_rate_limit
-    logging_level          = "INFO"
+    logging_level          = "OFF" # CloudWatch Logsアカウント設定が必要なため無効化
     data_trace_enabled     = false
     metrics_enabled        = true
   }
