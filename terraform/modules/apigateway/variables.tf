@@ -36,6 +36,18 @@ variable "region" {
   type        = string
 }
 
+variable "throttle_burst_limit" {
+  description = "API Gatewayのバーストリミット（秒間最大リクエスト数）"
+  type        = number
+  default     = 5000
+}
+
+variable "throttle_rate_limit" {
+  description = "API Gatewayのレートリミット（秒間平均リクエスト数）"
+  type        = number
+  default     = 10000
+}
+
 variable "tags" {
   description = "リソースに付与するタグ"
   type        = map(string)

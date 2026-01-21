@@ -1,17 +1,12 @@
 # リモートステート設定（本番環境用）
 #
-# 使用する前に以下を準備してください：
-# 1. S3 バケットを作成
-# 2. DynamoDB テーブルを作成（ロック用）
+# GitHub Actions経由でのデプロイ時には、ワークフロー内で
+# -backend-config パラメータを使用してS3バケット名などを指定します。
 #
-# 準備ができたらコメントを解除して使用してください。
+# 詳細は docs/aws-manual-setup.md を参照してください。
 
-# terraform {
-#   backend "s3" {
-#     bucket         = "your-terraform-state-bucket"
-#     key            = "production/terraform.tfstate"
-#     region         = "ap-northeast-1"
-#     dynamodb_table = "terraform-locks"
-#     encrypt        = true
-#   }
-# }
+terraform {
+  backend "s3" {
+    # GitHub Actionsで -backend-config パラメータにて設定
+  }
+}

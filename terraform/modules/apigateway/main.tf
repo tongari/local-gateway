@@ -22,6 +22,8 @@ resource "aws_api_gateway_authorizer" "token_authorizer" {
   type                             = "TOKEN"
   authorizer_uri                   = var.authorizer_function_invoke_arn
   identity_source                  = "method.request.header.Authorization"
+  # TODO(本番): TTLを300-3600秒に変更してパフォーマンスとコストを改善
+  # 現在1秒はテスト/開発用。本番では認可結果をキャッシュすることでDynamoDB呼び出しを削減
   authorizer_result_ttl_in_seconds = 1
 }
 
@@ -50,6 +52,21 @@ resource "aws_api_gateway_method" "get" {
   http_method   = "GET"
   authorization = "CUSTOM"
   authorizer_id = aws_api_gateway_authorizer.token_authorizer.id
+}
+
+# メソッドレベルのスロットリング設定
+resource "aws_api_gateway_method_settings" "throttling" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  stage_name  = aws_api_gateway_stage.stage.stage_name
+  method_path = "${aws_api_gateway_resource.test.path_part}/${aws_api_gateway_method.get.http_method}"
+
+  settings {
+    throttling_burst_limit = var.throttle_burst_limit
+    throttling_rate_limit  = var.throttle_rate_limit
+    logging_level          = "OFF" # CloudWatch Logsアカウント設定が必要なため無効化
+    data_trace_enabled     = false
+    metrics_enabled        = true
+  }
 }
 
 # AWS_PROXY 統合（バックエンド Lambda 関数を呼び出す）
@@ -92,6 +109,23 @@ resource "aws_api_gateway_stage" "stage" {
   deployment_id = aws_api_gateway_deployment.deployment.id
   rest_api_id   = aws_api_gateway_rest_api.api.id
   stage_name    = var.stage_name
+
+  # TODO(本番): CloudWatch Logsを有効化してデバッグとモニタリングを改善
+  # access_log_settings {
+  #   destination_arn = aws_cloudwatch_log_group.api_gateway.arn
+  #   format         = jsonencode({
+  #     requestId      = "$context.requestId"
+  #     ip             = "$context.identity.sourceIp"
+  #     caller         = "$context.identity.caller"
+  #     user           = "$context.identity.user"
+  #     requestTime    = "$context.requestTime"
+  #     httpMethod     = "$context.httpMethod"
+  #     resourcePath   = "$context.resourcePath"
+  #     status         = "$context.status"
+  #     protocol       = "$context.protocol"
+  #     responseLength = "$context.responseLength"
+  #   })
+  # }
 
   tags = var.tags
 }

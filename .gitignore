@@ -12,3 +12,6 @@ lambda/**/function.zip
 
 # Go Workspace（go.work.sumは生成ファイルだが、go.workはコミット推奨）
 go.work.sum
+
+# Terraform backend設定（現在使用していないが念の為）
+terraform/**/backend-config.hcl

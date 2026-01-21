@@ -1,0 +1,45 @@
+name: Reusable Test
+
+on:
+  workflow_call:
+
+env:
+  GO_VERSION: '1.25'
+  AWS_REGION: 'ap-northeast-1'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: dynamodb
+          DEBUG: 0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        working-directory: lambda
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: ap-northeast-1
+        run: |
+          go work sync
+          go test -v ./...

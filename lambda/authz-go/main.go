@@ -57,12 +57,17 @@ func generatePolicy(principalID, effect, methodArn string, ctx map[string]interf
 // Handler はAPIGateway Lambda Authorizerのハンドラ
 func (a *Authorizer) Handler(ctx context.Context, event events.APIGatewayCustomAuthorizerRequest) (events.APIGatewayCustomAuthorizerResponse, error) {
 	raw := strings.TrimSpace(event.AuthorizationToken)
+	// WARNING: 本番環境では機密情報をログに出力しないこと
+	// 開発/検証用のダミートークンのみ使用する前提でログ出力しています
+	// 本番移植時は log.Printf("[Authorizer] Token received (length: %d)", len(raw)) に変更してください
 	log.Printf("[Authorizer] Received token: %q", raw)
 
 	// "Bearer " プレフィックスを除去
 	token := strings.TrimSpace(strings.TrimPrefix(raw, "Bearer"))
 	token = strings.TrimSpace(strings.TrimPrefix(token, "bearer"))
 	token = strings.TrimSpace(token)
+	// WARNING: 本番環境では機密情報をログに出力しないこと
+	// 本番移植時はこの行を削除するか、log.Printf("[Authorizer] Token extracted (length: %d)", len(token)) に変更してください
 	log.Printf("[Authorizer] Extracted token: %q", token)
 
 	if token == "" {
@@ -75,7 +80,9 @@ func (a *Authorizer) Handler(ctx context.Context, event events.APIGatewayCustomA
 		Key: map[string]types.AttributeValue{
 			"token": &types.AttributeValueMemberS{Value: token},
 		},
-		ConsistentRead: aws.Bool(true),
+		// 結果整合性で十分（コスト削減: 読み取りコスト半減）
+		// 本番環境で強整合性が必要な場合は aws.Bool(true) に変更
+		ConsistentRead: aws.Bool(false),
 	})
 	if err != nil {
 		log.Printf("[Authorizer] DynamoDB GetItem error: %v", err)
@@ -98,6 +105,8 @@ func (a *Authorizer) Handler(ctx context.Context, event events.APIGatewayCustomA
 	}
 
 	log.Printf("[Authorizer] Token is valid, returning Allow")
+	// WARNING: 本番環境ではトークンをContextに含めないこと
+	// 開発/検証用の実装です。本番移植時はこのフィールドを削除してください
 	return generatePolicy("user", "Allow", event.MethodArn, map[string]interface{}{
 		"token": token,
 	})

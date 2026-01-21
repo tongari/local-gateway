@@ -103,7 +103,14 @@ services:
       - ./lambda:/lambda:ro
     working_dir: /terraform/local
     entrypoint: ["/bin/sh", "-c"]
-    command: ["terraform init && terraform apply -auto-approve"]
+    command:
+      - |
+        echo "==> Cleaning old Terraform state files"
+        rm -f terraform.tfstate* .terraform.lock.hcl
+        echo "==> Initializing Terraform"
+        terraform init
+        echo "==> Applying Terraform configuration"
+        terraform apply -auto-approve
     networks:
       - local-gateway
 

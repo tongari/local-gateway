@@ -4,7 +4,8 @@
 module "dynamodb" {
   source = "../modules/dynamodb"
 
-  table_name = "AllowedTokens"
+  table_name         = "AllowedTokens"
+  enable_encryption  = true  # 本番環境では暗号化を有効化
 
   tags = {
     Environment = "production"
@@ -18,6 +19,7 @@ module "lambda_authorizer" {
 
   function_name          = "authz-go"
   zip_path               = "${path.module}/../../lambda/authz-go/function.zip"
+  timeout                = 10  # Authorizer は高速な応答が必要
   iam_role_name          = "lambda-authorizer-role"
   iam_policy_name        = "lambda-authorizer-policy"
   enable_dynamodb_policy = true
@@ -36,6 +38,7 @@ module "lambda_test_function" {
 
   function_name = "test-function"
   zip_path      = "${path.module}/../../lambda/test-function/function.zip"
+  timeout       = 10  # テスト用途の軽量関数
   iam_role_name = "lambda-test-function-role"
 
   tags = {
@@ -55,6 +58,10 @@ module "apigateway" {
   authorizer_function_invoke_arn = module.lambda_authorizer.invoke_arn
   backend_function_name          = module.lambda_test_function.function_name
   backend_function_invoke_arn    = module.lambda_test_function.invoke_arn
+
+  # レート制限（本番環境用: 適切な値に調整）
+  throttle_burst_limit = 100   # 秒間最大100リクエスト
+  throttle_rate_limit  = 50    # 秒間平均50リクエスト
 
   tags = {
     Environment = "production"

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose exec:*)",
+      "Bash(docker run:*)",
+      "Bash(wc:*)",
+      "Skill(code-review)",
+      "Skill(code-review:*)"
+    ]
+  }
+}
