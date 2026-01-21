@@ -141,297 +141,18 @@ sequenceDiagram
 
 ## Phase 1: AWS環境準備（手動で1回だけ実施）
 
-AWSコンソールまたはAWS CLIで以下を作成します。
+AWS環境のセットアップ手順については、[docs/aws-manual-setup.md](./aws-manual-setup.md)を参照してください。
+
+以下のリソースを作成する必要があります：
 
 | リソース | 用途 | 推奨名 |
 |---------|------|--------|
-| S3バケット | Terraform state保存 | `local-gateway-tfstate-<ACCOUNT_ID>` (グローバルで一意) |
+| S3バケット | Terraform state保存 | `local-gateway-tfstate-<ACCOUNT_ID>` |
 | DynamoDBテーブル | State lock | `local-gateway-tfstate-lock` |
-| IAM OIDC Provider | GitHub Actions認証 | - |
+| IAM OIDC Provider | GitHub Actions認証 | `token.actions.githubusercontent.com` |
 | IAM Role | GitHub Actionsが使用 | `github-actions-local-gateway` |
 
-> **💡 OIDC認証を推奨する理由**: AWSアクセスキーをGitHubに保存する必要がなく、セキュリティが向上します。
-
-### 1.1 Terraform State用リソース
-
-CI/CDでTerraformを実行するには、stateファイルをリモートで管理する必要があります。
-
-#### S3バケット (tfstate保存用)
-
-> **重要**: S3バケット名はAWS全体（全リージョン・全アカウント）で一意である必要があります。
->
-> **推奨命名規則**: `<組織名>-<プロジェクト名>-tfstate-<AWSアカウントID>`
->
-> 例: `local-gateway-tfstate-123456789012`
-
-```bash
-# バケット作成
-# 注意: バケット名はAWSアカウントIDを含めてグローバルで一意にすること
-aws s3api create-bucket \
-  --bucket local-gateway-tfstate-123456789012 \
-  --region ap-northeast-1 \
-  --create-bucket-configuration LocationConstraint=ap-northeast-1
-
-# バージョニング有効化
-aws s3api put-bucket-versioning \
-  --bucket local-gateway-tfstate-123456789012 \
-  --versioning-configuration Status=Enabled
-
-# 暗号化設定
-aws s3api put-bucket-encryption \
-  --bucket local-gateway-tfstate-123456789012 \
-  --server-side-encryption-configuration '{
-    "Rules": [
-      {
-        "ApplyServerSideEncryptionByDefault": {
-          "SSEAlgorithm": "AES256"
-        }
-      }
-    ]
-  }'
-```
-
-#### DynamoDB テーブル (state lock用)
-
-```bash
-aws dynamodb create-table \
-  --table-name local-gateway-tfstate-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region ap-northeast-1
-```
-
-### 1.2 GitHub Actions用IAMロール (OIDC)
-
-#### IAM OIDC Provider とは
-
-**IAM OIDC Provider** は、AWS IAMの機能で、**外部のOpenID Connect (OIDC) 対応IDプロバイダー**をAWSと信頼関係で結び、**AWSアクセスキーなしで**AWSリソースにアクセスできるようにする仕組みです。
-
-**従来の方法 vs OIDC認証**
-
-| 方式 | 仕組み | セキュリティ |
-|------|--------|-------------|
-| **従来** | AWSアクセスキー・シークレットキーをGitHub Secretsに保存 | ❌ 漏洩リスク、ローテーション管理が必要 |
-| **OIDC** | 一時的なトークンを発行、キーの保存不要 | ✅ 漏洩リスクなし、自動期限切れ |
-
-**GitHub Actions での動作フロー**
-
-```mermaid
-sequenceDiagram
-    participant GH as GitHub Actions
-    participant OIDC as GitHub OIDC Provider
-    participant AWS as AWS IAM
-    participant STS as AWS STS
-
-    GH->>OIDC: 1. OIDCトークンをリクエスト
-    OIDC->>GH: 2. JWT トークン発行
-    GH->>AWS: 3. トークンを提示してロール引き受け要求
-    AWS->>AWS: 4. 信頼ポリシーを検証
-    AWS->>STS: 5. 一時認証情報を生成
-    STS->>GH: 6. 一時的なアクセスキー/シークレット/セッショントークン
-    GH->>AWS: 7. 一時認証情報でAWSリソースにアクセス
-```
-
-**信頼の仕組み**
-
-1. **IDプロバイダー（GitHub側）**: GitHub Actionsは `https://token.actions.githubusercontent.com` というOIDCプロバイダーを持ち、ワークフロー実行時にJWTトークンを発行します。
-
-2. **信頼ポリシー（AWS側）**: AWSは「このGitHubリポジトリからのトークンは信頼できる」と設定し、特定のリポジトリからのリクエストのみがIAMロールを引き受けられます。
-
-**OIDC認証のメリット**
-
-| メリット | 説明 |
-|---------|------|
-| **シークレット不要** | AWSアクセスキーをGitHubに保存しない |
-| **自動ローテーション** | 一時トークンは自動的に期限切れ（通常1時間） |
-| **細かいアクセス制御** | リポジトリ、ブランチ、環境ごとに制限可能 |
-| **監査可能** | CloudTrailでどのワークフローがアクセスしたか追跡可能 |
-
-#### OIDC Provider作成
-
-**方法1: AWSコンソール（最も簡単・推奨）**
-
-1. [IAM コンソール](https://console.aws.amazon.com/iam/) > **Identity providers** > **Add provider**
-2. **Provider type**: OpenID Connect を選択
-3. **Provider URL**: `https://token.actions.githubusercontent.com` を入力
-4. **Get thumbprint** ボタンをクリック（自動的にthumbprintを取得）
-5. **Audience**: `sts.amazonaws.com` を入力
-6. **Add provider** をクリック
-
-> **参考**: AWSコンソールは「Get thumbprint」ボタンで自動的にthumbprintを取得・検証します。
-
-**方法2: AWS CLI**
-
-```bash
-# IAMが自動的にthumbprintを取得
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com
-```
-
-`--thumbprint-list`パラメータは省略可能です。省略した場合、IAMが自動的にOIDC IdPサーバー証明書の中間CA thumbprintを取得します。
-
-> **参考**: 2023年6月以降、GitHub ActionsとAWSのOIDC連携においてthumbprintの手動指定は不要になりました。
-> - [Use IAM roles to connect GitHub Actions to AWS](https://aws.amazon.com/blogs/security/use-iam-roles-to-connect-github-actions-to-actions-in-aws/)
-> - [GitHub Changelog - Update on OIDC integration with AWS](https://github.blog/changelog/2023-06-27-github-actions-update-on-oidc-integration-with-aws/)
-> - [AWS CLI - create-open-id-connect-provider](https://docs.aws.amazon.com/cli/latest/reference/iam/create-open-id-connect-provider.html)
-
-**確認方法**
-
-```bash
-# 作成されたOIDC Providerを確認
-aws iam get-open-id-connect-provider \
-  --open-id-connect-provider-arn arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com
-```
-
-#### IAMロール作成
-
-**信頼ポリシー (trust-policy.json)**
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:<GITHUB_ORG>/<REPO_NAME>:*"
-        }
-      }
-    }
-  ]
-}
-```
-
-**権限ポリシー (permissions-policy.json)**
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "TerraformStateAccess",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::local-gateway-tfstate",
-        "arn:aws:s3:::local-gateway-tfstate/*"
-      ]
-    },
-    {
-      "Sid": "TerraformStateLock",
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:GetItem",
-        "dynamodb:PutItem",
-        "dynamodb:DeleteItem"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-northeast-1:<ACCOUNT_ID>:table/local-gateway-tfstate-lock"
-    },
-    {
-      "Sid": "LambdaManagement",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:CreateFunction",
-        "lambda:UpdateFunctionCode",
-        "lambda:UpdateFunctionConfiguration",
-        "lambda:DeleteFunction",
-        "lambda:GetFunction",
-        "lambda:ListFunctions",
-        "lambda:AddPermission",
-        "lambda:RemovePermission",
-        "lambda:InvokeFunction"
-      ],
-      "Resource": "arn:aws:lambda:ap-northeast-1:<ACCOUNT_ID>:function:*"
-    },
-    {
-      "Sid": "DynamoDBManagement",
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:CreateTable",
-        "dynamodb:DeleteTable",
-        "dynamodb:DescribeTable",
-        "dynamodb:UpdateTable",
-        "dynamodb:ListTables"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-northeast-1:<ACCOUNT_ID>:table/*"
-    },
-    {
-      "Sid": "APIGatewayManagement",
-      "Effect": "Allow",
-      "Action": [
-        "apigateway:GET",
-        "apigateway:POST",
-        "apigateway:PUT",
-        "apigateway:PATCH",
-        "apigateway:DELETE"
-      ],
-      "Resource": [
-        "arn:aws:apigateway:ap-northeast-1::/restapis",
-        "arn:aws:apigateway:ap-northeast-1::/restapis/*"
-      ]
-    },
-    {
-      "Sid": "IAMRoleManagement",
-      "Effect": "Allow",
-      "Action": [
-        "iam:CreateRole",
-        "iam:DeleteRole",
-        "iam:GetRole",
-        "iam:PassRole",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:GetRolePolicy",
-        "iam:ListRolePolicies",
-        "iam:ListAttachedRolePolicies"
-      ],
-      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/*"
-    },
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:DeleteLogGroup",
-        "logs:DescribeLogGroups",
-        "logs:PutRetentionPolicy"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-**ロール作成コマンド**
-
-```bash
-# ロール作成
-aws iam create-role \
-  --role-name github-actions-local-gateway \
-  --assume-role-policy-document file://trust-policy.json
-
-# ポリシーアタッチ
-aws iam put-role-policy \
-  --role-name github-actions-local-gateway \
-  --policy-name local-gateway-deploy \
-  --policy-document file://permissions-policy.json
-```
+> **💡 詳細な手順**: [AWS環境手動セットアップガイド](./aws-manual-setup.md)を参照してください。
 
 ---
 
@@ -439,42 +160,33 @@ aws iam put-role-policy \
 
 ### 2.1 本番環境backend設定
 
-[`terraform/production/backend.tf`](../terraform/production/backend.tf) のコメントを解除し、作成したS3バケット名を設定します。
+[`terraform/production/backend.tf`](../terraform/production/backend.tf) は空のS3バックエンド設定になっています。
 
-> **注意**: `bucket`には実際に作成したバケット名（AWSアカウントIDを含むもの）を指定してください。
+実際のバケット名などの設定は、GitHub Actionsワークフロー内で `-backend-config` パラメータを使用して動的に指定します。
 
 ```hcl
 terraform {
-  required_version = ">= 1.5.0"
-
   backend "s3" {
-    bucket         = "local-gateway-tfstate-123456789012"  # 実際のバケット名に置き換える
-    key            = "production/terraform.tfstate"
-    region         = "ap-northeast-1"
-    encrypt        = true
-    dynamodb_table = "local-gateway-tfstate-lock"
-  }
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = "ap-northeast-1"
-
-  default_tags {
-    tags = {
-      Project     = "local-gateway"
-      Environment = "production"
-      ManagedBy   = "terraform"
-    }
+    # GitHub Actionsで -backend-config パラメータにて設定
   }
 }
 ```
+
+**GitHub Actionsでの設定例:**
+
+```yaml
+- name: Terraform Init
+  working-directory: terraform/production
+  run: |
+    terraform init \
+      -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+      -backend-config="key=production/terraform.tfstate" \
+      -backend-config="region=${{ env.AWS_REGION }}" \
+      -backend-config="dynamodb_table=local-gateway-tfstate-lock" \
+      -backend-config="encrypt=true"
+```
+
+> **注意**: バケット名は GitHub Secrets の `TF_STATE_BUCKET` で管理されます。詳細は [docs/aws-manual-setup.md](./aws-manual-setup.md) を参照してください。
 
 ---
 
@@ -933,36 +645,6 @@ jobs:
 
 ---
 
-## Phase 4: 実行手順チェックリスト
-
-### Step 1: AWS環境準備
-
-- [ ] S3バケット作成 (tfstate用)
-- [ ] DynamoDBテーブル作成 (state lock用)
-- [ ] OIDC Provider作成
-- [ ] IAMロール作成
-
-### Step 2: Terraform設定
-
-- [ ] `terraform/production/backend.tf` backend設定有効化
-- [ ] ローカルで `terraform init` 実行確認
-
-### Step 3: GitHub設定
-
-- [ ] `.github/workflows/ci.yml` 作成
-- [ ] `.github/workflows/deploy.yml` 作成
-- [ ] GitHub Secrets設定 (`AWS_ROLE_ARN`)
-- [ ] GitHub Environment作成 (`production`)
-
-### Step 4: 動作確認
-
-- [ ] PRを作成してCI実行確認
-- [ ] terraform plan結果確認
-- [ ] mainにマージしてデプロイ確認
-- [ ] API Gateway URL疎通確認
-
----
-
 ## セキュリティ考慮事項
 
 | 項目 | 対策 |
@@ -1023,25 +705,6 @@ jobs:
    - **判断**: GitHub Actionsは動的、Terraformは明示的
    - **理由**: インフラコードは可読性を優先
 
-### ユーザーが実施すべき残りタスク
-
-#### Phase 1: AWS環境準備
-- [ ] S3バケット作成 (tfstate用)
-- [ ] DynamoDBテーブル作成 (state lock用)
-- [ ] OIDC Provider作成
-- [ ] IAMロール作成
-
-#### Phase 3: GitHub設定
-- [ ] `terraform/production/backend.tf`の`<ACCOUNT_ID>`を実際のAWSアカウントIDに置き換え
-- [ ] GitHub Secrets設定: `AWS_ROLE_ARN`
-- [ ] GitHub Environment作成: `production`
-- [ ] ブランチ保護ルール設定（推奨）
-
-#### Phase 4: 動作確認
-- [ ] PRを作成してCI実行確認
-- [ ] terraform plan結果確認
-- [ ] mainにマージしてデプロイ確認
-- [ ] API Gateway URL疎通確認
 
 ---
 

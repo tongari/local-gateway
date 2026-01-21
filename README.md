@@ -21,51 +21,22 @@ JWTベース認証における「認可判断をDynamoDBで外出しする設計
 
 ## セットアップ
 
-### 1. 環境変数の設定
+詳細なセットアップ手順については、[docs/aws-manual-setup.md](./docs/aws-manual-setup.md)を参照してください。
 
-`.env`ファイルを作成：
+### クイックスタート（ローカル開発）
 
 ```bash
+# 1. 環境変数の設定
 cp .env.example .env
-```
 
-### 2. Lambda関数のビルド
-
-**重要**: `docker compose up`の前に必ずビルドを実行してください。
-
-```bash
+# 2. Lambda関数のビルド
 make build
-```
 
-これにより`lambda/`配下の各Lambda関数ディレクトリに`function.zip`が生成されます：
-- `lambda/authz-go/function.zip` - Lambda Authorizer関数
-- `lambda/test-function/function.zip` - テスト用Lambda関数（オプション）
-
-**注意**: `lambda/`配下の各ディレクトリは独立したLambda関数として扱われます。`make build`は`lambda/`配下のすべてのディレクトリを検出してビルドします。
-
-### 3. 環境の起動
-
-```bash
+# 3. 環境の起動
 docker compose up -d
-  or
-docker compose up
 ```
 
-これにより以下が自動実行されます：
-1. LocalStackの起動
-2. DynamoDBテーブル（`AllowedTokens`）の作成
-3. 初期データの投入（トークン: `allow`）
-4. Lambda関数のデプロイ（`lambda/`配下の各`function.zip`が必要）
-   - `authz-go`: Lambda Authorizer関数
-   - `test-function`: テスト用Lambda関数（存在する場合）
-5. API Gatewayの作成とAuthorizer設定
-
-**注意**: 
-- 初回起動時や`function.zip`が存在しない場合は、`make build`を実行してから`docker compose up -d`を実行してください
-- `lambda/`配下の各ディレクトリに`function.zip`が存在する場合、すべての関数がデプロイされます
-- 既にコンテナが起動している場合は、`make deploy`を実行することでビルドとデプロイを一括で実行できます
-
-### 4. 動作確認
+### 動作確認
 
 #### デプロイ状況の確認
 
