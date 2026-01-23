@@ -2,41 +2,52 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 )
 
-type Response struct {
-	Message string `json:"message"`
-	Status  string `json:"status"`
+// Request は非Proxy統合のリクエスト形式
+type Request struct {
+	Body       string            `json:"body"`
+	Headers    map[string]string `json:"headers"`
+	HTTPMethod string            `json:"httpMethod"`
+	Path       string            `json:"path"`
 }
 
-func handler(ctx context.Context, event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+// Response は非Proxy統合のレスポンス形式
+type Response struct {
+	Message          string            `json:"message"`
+	Status           string            `json:"status"`
+	ReceivedHeaders  map[string]string `json:"receivedHeaders"`
+	CompanyID        string            `json:"companyId,omitempty"`
+	Scope            string            `json:"scope,omitempty"`
+	InternalToken    string            `json:"internalToken,omitempty"`
+	OriginalAuthHeader string          `json:"originalAuthHeader,omitempty"`
+}
+
+func handler(ctx context.Context, event Request) (Response, error) {
 	log.Printf("Received event: %+v", event)
+	// TODO: 本番環境ではログに出力しないこと	
+	log.Printf("Headers: %+v", event.Headers)
+
+	// ヘッダーから各値を取得
+	companyID := event.Headers["X-Company-Id"]
+	scope := event.Headers["X-Scope"]
+	internalToken := event.Headers["X-Internal-Token"]
+	originalAuth := event.Headers["Authorization"]
 
 	response := Response{
-		Message: "Hello from test-function!",
-		Status:  "success",
+		Message:            "Hello from test-function!",
+		Status:             "success",
+		ReceivedHeaders:    event.Headers,
+		CompanyID:          companyID,
+		Scope:              scope,
+		InternalToken:      internalToken,
+		OriginalAuthHeader: originalAuth,
 	}
 
-	body, err := json.Marshal(response)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Body:       `{"error": "failed to marshal response"}`,
-		}, err
-	}
-
-	return events.APIGatewayProxyResponse{
-		StatusCode: 200,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: string(body),
-	}, nil
+	return response, nil
 }
 
 func main() {

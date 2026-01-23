@@ -53,3 +53,16 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# VPC Link 統合用の変数（オプション）
+variable "vpc_link_id" {
+  description = "VPC Link ID（VPC Link統合を使用する場合）"
+  type        = string
+  default     = null
+}
+
+variable "vpc_link_backend_url" {
+  description = "VPC Link経由でアクセスするバックエンドURL"
+  type        = string
+  default     = null
+}

@@ -39,6 +39,12 @@ resource "aws_iam_policy" "lambda_policy" {
   tags = var.tags
 }
 
+# Attach CloudWatch Logs policy to role（常に必要）
+resource "aws_iam_role_policy_attachment" "lambda_logs" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
 # Attach policy to role（enable_dynamodb_policy が true の場合のみ）
 resource "aws_iam_role_policy_attachment" "lambda_policy_attachment" {
   count = var.enable_dynamodb_policy ? 1 : 0

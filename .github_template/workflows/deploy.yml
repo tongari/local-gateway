@@ -3,6 +3,23 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'デプロイ先環境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+      confirm_deploy:
+        description: '本当にデプロイしますか？ (yes/no)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
 
 permissions:
   contents: read          # リポジトリのコードを読み取る権限（チェックアウト用）
@@ -12,8 +29,27 @@ env:
   AWS_REGION: 'ap-northeast-1'
 
 jobs:
+  # workflow_dispatchで実行された場合の確認ステップ
+  check-permission:
+    name: Check Deploy Permission
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_deploy }}" != "yes" ]; then
+            echo "❌ デプロイが確認されませんでした。'yes' を選択してください。"
+            exit 1
+          fi
+          echo "✅ デプロイが確認されました"
+          echo "📦 ブランチ: ${{ github.ref_name }}"
+          echo "🎯 環境: ${{ github.event.inputs.environment }}"
+          echo "👤 実行者: ${{ github.actor }}"
+
   test:
     name: Test
+    needs: [check-permission]
+    if: always() && (needs.check-permission.result == 'success' || needs.check-permission.result == 'skipped')
     uses: ./.github/workflows/_reusable-test.yml
 
   build:
@@ -27,6 +63,18 @@ jobs:
     needs: build
     environment: production
     steps:
+      - name: Display deployment info
+        run: |
+          echo "## 🚀 Deployment Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Actor**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "- **Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -35,6 +83,9 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact-name }}
           path: lambda
+
+      - name: Mask AWS Role ARN
+        run: echo "::add-mask::${{ secrets.AWS_ROLE_ARN }}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

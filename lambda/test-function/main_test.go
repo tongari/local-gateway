@@ -2,15 +2,20 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_正常なリクエストで200とJSONレスポンスを返すこと(t *testing.T) {
-	event := events.APIGatewayProxyRequest{
+func Test_非Proxy形式のリクエストを正しく処理できること(t *testing.T) {
+	event := Request{
+		Body: "",
+		Headers: map[string]string{
+			"X-Company-Id":    "12345",
+			"X-Scope":         "read:stores",
+			"X-Internal-Token": "Bearer internal_abc",
+			"Authorization":   "Bearer original_token",
+		},
 		HTTPMethod: "GET",
 		Path:       "/test",
 	}
@@ -18,36 +23,77 @@ func Test_正常なリクエストで200とJSONレスポンスを返すこと(t 
 	resp, err := handler(context.Background(), event)
 
 	assert.NoError(t, err)
-	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Headers["Content-Type"])
+	assert.Equal(t, "Hello from test-function!", resp.Message)
+	assert.Equal(t, "success", resp.Status)
 
-	// レスポンスボディがJSONとしてパース可能か確認
-	var body Response
-	err = json.Unmarshal([]byte(resp.Body), &body)
-	assert.NoError(t, err)
-	assert.Equal(t, "Hello from test-function!", body.Message)
-	assert.Equal(t, "success", body.Status)
+	// ヘッダーが正しく取得されていること
+	assert.Equal(t, "12345", resp.CompanyID)
+	assert.Equal(t, "read:stores", resp.Scope)
+	assert.Equal(t, "Bearer internal_abc", resp.InternalToken)
+	assert.Equal(t, "Bearer original_token", resp.OriginalAuthHeader)
+
+	// ReceivedHeadersに全ヘッダーが含まれること
+	assert.Equal(t, "12345", resp.ReceivedHeaders["X-Company-Id"])
+	assert.Equal(t, "read:stores", resp.ReceivedHeaders["X-Scope"])
+	assert.Equal(t, "Bearer internal_abc", resp.ReceivedHeaders["X-Internal-Token"])
+	assert.Equal(t, "Bearer original_token", resp.ReceivedHeaders["Authorization"])
 }
 
-func Test_レスポンスのJSON構造が正しいこと(t *testing.T) {
-	event := events.APIGatewayProxyRequest{}
+func Test_ヘッダーがない場合でもエラーにならないこと(t *testing.T) {
+	event := Request{
+		Body:       "",
+		Headers:    map[string]string{},
+		HTTPMethod: "GET",
+		Path:       "/test",
+	}
+
+	resp, err := handler(context.Background(), event)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello from test-function!", resp.Message)
+	assert.Equal(t, "success", resp.Status)
+
+	// ヘッダーが空の場合は空文字列が返ること
+	assert.Empty(t, resp.CompanyID)
+	assert.Empty(t, resp.Scope)
+	assert.Empty(t, resp.InternalToken)
+}
+
+func Test_マッピングテンプレートから渡されるヘッダーを処理できること(t *testing.T) {
+	// API Gatewayのマッピングテンプレートから渡される形式をシミュレート
+	event := Request{
+		Body: "",
+		Headers: map[string]string{
+			"Host":              "api.example.com",
+			"User-Agent":        "curl/7.64.1",
+			"Accept":            "*/*",
+			"X-Company-Id":      "12345",
+			"X-Scope":           "read:stores",
+			"X-Internal-Token":  "Bearer internal_abc",
+			"Authorization":     "Bearer original_token",
+			"X-Amzn-Trace-Id":   "Root=1-123456",
+			"X-Forwarded-For":   "192.168.1.1",
+			"X-Forwarded-Port":  "443",
+			"X-Forwarded-Proto": "https",
+		},
+		HTTPMethod: "GET",
+		Path:       "/test/test",
+	}
 
 	resp, err := handler(context.Background(), event)
 
 	assert.NoError(t, err)
 
-	// JSONとしてパース
-	var body map[string]interface{}
-	err = json.Unmarshal([]byte(resp.Body), &body)
-	assert.NoError(t, err)
+	// カスタムヘッダーが正しく処理されること
+	assert.Equal(t, "12345", resp.CompanyID)
+	assert.Equal(t, "read:stores", resp.Scope)
+	assert.Equal(t, "Bearer internal_abc", resp.InternalToken)
+	assert.Equal(t, "Bearer original_token", resp.OriginalAuthHeader)
 
-	// 期待するフィールドが存在するか確認
-	assert.Contains(t, body, "message")
-	assert.Contains(t, body, "status")
-
-	// フィールドの型を確認
-	_, messageOK := body["message"].(string)
-	_, statusOK := body["status"].(string)
-	assert.True(t, messageOK, "message should be a string")
-	assert.True(t, statusOK, "status should be a string")
+	// すべてのヘッダーがReceivedHeadersに含まれること
+	assert.NotEmpty(t, resp.ReceivedHeaders)
+	assert.Contains(t, resp.ReceivedHeaders, "Host")
+	assert.Contains(t, resp.ReceivedHeaders, "X-Company-Id")
+	assert.Contains(t, resp.ReceivedHeaders, "X-Internal-Token")
+	assert.Contains(t, resp.ReceivedHeaders, "Authorization")
 }

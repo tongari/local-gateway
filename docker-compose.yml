@@ -1,3 +1,5 @@
+name: local-gateway
+
 services:
   localstack:
     container_name: gateway-localstack
@@ -113,6 +115,24 @@ services:
         terraform apply -auto-approve
     networks:
       - local-gateway
+
+  backend-server:
+    container_name: gateway-backend-server
+    build:
+      context: ./backend-server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVICE_NAME=backend-api
+      - PORT=8080
+    networks:
+      - local-gateway
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   local-gateway:

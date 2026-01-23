@@ -395,8 +395,9 @@ deploy: build
 	    -v $(CURDIR)/terraform:/terraform \
 	    -v $(CURDIR)/lambda:/lambda:ro \
 	    -w /terraform/local \
+	    --entrypoint sh \
 	    hashicorp/terraform:latest \
-	    sh -c "terraform init && terraform apply -auto-approve"; \
+	    -c "terraform init && terraform apply -auto-approve"; \
 	fi
 	@echo "==> Deployment completed successfully"
 

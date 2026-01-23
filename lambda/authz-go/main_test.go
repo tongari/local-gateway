@@ -186,6 +186,11 @@ func Test_有効なトークンの場合はAllowを返すこと(t *testing.T) {
 	assert.Equal(t, "user", resp.PrincipalID)
 	assert.Equal(t, "Allow", resp.PolicyDocument.Statement[0].Effect)
 	assert.Equal(t, testToken, resp.Context["token"])
+
+	// contextにハードコードされた値が含まれることを確認
+	assert.Equal(t, "12345", resp.Context["companyId"])
+	assert.Equal(t, "read:stores", resp.Context["scope"])
+	assert.Equal(t, "internal_abc", resp.Context["internalToken"])
 }
 
 func Test_Bearerプレフィックス付きトークンが正しく処理されること(t *testing.T) {

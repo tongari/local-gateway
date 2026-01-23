@@ -63,11 +63,35 @@ module "apigateway" {
   throttle_burst_limit = 100   # 秒間最大100リクエスト
   throttle_rate_limit  = 50    # 秒間平均50リクエスト
 
+  # VPC Link統合（LocalStackでの検証用）
+  # 注意: LocalStackではVPC Linkが完全にサポートされていないため、動作しない可能性があります
+  # vpc_link_id          = module.vpclink.vpc_link_id
+  # vpc_link_backend_url = "http://${module.vpclink.nlb_dns_name}:8080/"
+
   tags = {
     Environment = "local"
     ManagedBy   = "terraform"
   }
 }
+
+# VPC Link統合（LocalStackでの動作検証用）
+# 注意: LocalStackではVPC Linkのサポートが限定的です
+# まずは基本環境を動作させてから有効化します
+# module "vpclink" {
+#   source = "../modules/vpclink-local"
+#
+#   name_prefix        = "local-gateway"
+#   vpc_cidr           = "10.0.0.0/16"
+#   availability_zones = ["ap-northeast-1a", "ap-northeast-1c"]
+#   backend_port       = 8080
+#   # LocalStackでは実際のIPではなく、NLBのDNS名を使用する
+#   backend_ips        = []
+#
+#   tags = {
+#     Environment = "local"
+#     ManagedBy   = "terraform"
+#   }
+# }
 
 # 出力
 output "dynamodb_table_name" {
@@ -99,3 +123,19 @@ output "api_gateway_invoke_url" {
   description = "API Gateway 呼び出し URL"
   value       = module.apigateway.invoke_url
 }
+
+# VPC Link関連の出力（VPC Linkモジュール有効化時に使用）
+# output "vpc_link_id" {
+#   description = "VPC Link ID"
+#   value       = module.vpclink.vpc_link_id
+# }
+#
+# output "vpc_link_status" {
+#   description = "VPC Linkのステータス"
+#   value       = module.vpclink.vpc_link_status
+# }
+#
+# output "nlb_dns_name" {
+#   description = "NLBのDNS名"
+#   value       = module.vpclink.nlb_dns_name
+# }

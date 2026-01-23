@@ -105,11 +105,18 @@ func (a *Authorizer) Handler(ctx context.Context, event events.APIGatewayCustomA
 	}
 
 	log.Printf("[Authorizer] Token is valid, returning Allow")
-	// WARNING: 本番環境ではトークンをContextに含めないこと
-	// 開発/検証用の実装です。本番移植時はこのフィールドを削除してください
-	return generatePolicy("user", "Allow", event.MethodArn, map[string]interface{}{
-		"token": token,
-	})
+
+	// Contextに追加情報を含める
+	// TODO: 本番環境ではDynamoDBから取得するように変更
+	authContext := map[string]interface{}{
+		"token":         token, // WARNING: 本番環境では削除
+		"companyId":     "12345",
+		"scope":         "read:stores",
+		"internalToken": "internal_abc",
+	}
+
+
+	return generatePolicy("user", "Allow", event.MethodArn, authContext)
 }
 
 func main() {
